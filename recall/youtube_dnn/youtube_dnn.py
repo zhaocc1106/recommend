@@ -15,7 +15,7 @@ from deepmatch.utils import recall_N
 
 MODEL_PATH = "/tmp/youtube_dnn/"
 CKPT_PATH = os.path.join(MODEL_PATH, "checkpoint.h5")
-SAVER_PATH = os.path.join(MODEL_PATH, "model_saver")
+SAVER_PATH = os.path.join(MODEL_PATH, "model_saver.h5")
 DATA_PATH = "./"
 SEQ_LEN = 50  # Max movie history sequence len.
 NEG_SAMPLE = 1  # The rate of negative sample.
@@ -53,24 +53,29 @@ def gen_feature():
 
 def def_model_and_train(train_model_input, train_label, feature_max_idx):
     # count #unique features for each sparse field and generate feature config for sequence feature
+    # 用户稀疏特征的配置
+    user_feature_columns = [
+        # 定义稀疏特征和特征embedding的dim长度
+        SparseFeat('user_id', feature_max_idx['user_id'], 16),
+        SparseFeat("gender", feature_max_idx['gender'], 16),
+        SparseFeat("age", feature_max_idx['age'], 16),
+        SparseFeat("occupation", feature_max_idx['occupation'], 16),
+        SparseFeat("zip", feature_max_idx['zip'], 16),
+        # 定义变长的视频序列稀疏特征，以及pooling层的方式（mean）
+        VarLenSparseFeat(SparseFeat('hist_movie_id', feature_max_idx['movie_id'], EMBEDDING_DIM,
+                                    embedding_name="movie_id"), SEQ_LEN, 'mean', 'hist_len'),
+    ]
 
-    user_feature_columns = [SparseFeat('user_id', feature_max_idx['user_id'], 16),
-                            SparseFeat("gender", feature_max_idx['gender'], 16),
-                            SparseFeat("age", feature_max_idx['age'], 16),
-                            SparseFeat("occupation", feature_max_idx['occupation'], 16),
-                            SparseFeat("zip", feature_max_idx['zip'], 16),
-                            VarLenSparseFeat(SparseFeat('hist_movie_id', feature_max_idx['movie_id'], EMBEDDING_DIM,
-                                                        embedding_name="movie_id"), SEQ_LEN, 'mean', 'hist_len'),
-                            ]
-
+    # 视频特征定义配置
     item_feature_columns = [SparseFeat('movie_id', feature_max_idx['movie_id'], EMBEDDING_DIM)]
 
     # Define model.
     import tensorflow as tf
     if tf.__version__ >= '2.0.0':
         tf.compat.v1.disable_eager_execution()
-    model = YoutubeDNN(user_feature_columns, item_feature_columns, num_sampled=100,
-                       user_dnn_hidden_units=(128, 64, EMBEDDING_DIM))
+    model = YoutubeDNN(
+        user_feature_columns, item_feature_columns, num_sampled=100,
+        user_dnn_hidden_units=(128, 64, EMBEDDING_DIM))  # dnn层最后一层的len和视频特征embed len一致，作为用户的embedding特征输出
     model.compile(optimizer="adam", loss=sampledsoftmaxloss)  # "binary_crossentropy")
     model.summary()
 
@@ -84,27 +89,29 @@ def def_model_and_train(train_model_input, train_label, feature_max_idx):
 
     if not os.path.exists(MODEL_PATH):
         os.makedirs(MODEL_PATH)
-    if not os.path.exists(SAVER_PATH):
-        os.makedirs(SAVER_PATH)
 
-    print(model.user_embedding.shape)
-    print(model.item_embedding.shape)
+    if os.path.exists(CKPT_PATH):
+        model.load_weights(filepath=CKPT_PATH)
 
     history = model.fit(train_model_input, train_label,  # train_label,
                         batch_size=512, epochs=20, verbose=1, validation_split=0.0, callbacks=callbacks)
+    model.save(filepath=SAVER_PATH)
 
-    user_embedding_model = Model(inputs=model.user_input, outputs=model.user_embedding)
-    item_embedding_model = Model(inputs=model.item_input, outputs=model.item_embedding)
+    print('user_embed.shape: {}'.format(model.user_embedding.shape))
+    print('item_embed.shape: {}'.format(model.item_embedding.shape))
+    user_embedding_model = Model(inputs=model.user_input, outputs=model.user_embedding)  # 抽取出输出用户embed特征的模型
+    item_embedding_model = Model(inputs=model.item_input, outputs=model.item_embedding)  # 抽取出输出视频embed特征的模型
+
     return user_embedding_model, item_embedding_model
 
 
 def evaluate(user_embedding_model, item_embedding_model, user_input, item_profile, test_set):
+    # {用户id: 用于测试的观看过的视频id列表，上边生成测试数据时只把视频历史最后一个视频当做这里的测试集的视频列表}
     test_true_label = {line[0]: [line[2]] for line in test_set}
-    print('test_true_label: {}'.format(test_true_label))
 
     item_input = {"movie_id": item_profile['movie_id'].values, }
-    user_embeds = user_embedding_model.predict(user_input, batch_size=2 ** 12)
-    item_embeds = item_embedding_model.predict(item_input, batch_size=2 ** 12)
+    user_embeds = user_embedding_model.predict(user_input, batch_size=2 ** 12)  # 生成所有用户的embed特征
+    item_embeds = item_embedding_model.predict(item_input, batch_size=2 ** 12)  # 生成所有视频的embed特征
     print('user_embeds.shape: {}'.format(user_embeds.shape))
     print('item_embeds.shape: {}'.format(item_embeds.shape))
 
@@ -113,17 +120,17 @@ def evaluate(user_embedding_model, item_embedding_model, user_input, item_profil
     print('index.is_trained: {}'.format(index.is_trained))
     index.add(item_embeds)
     print('index.ntotal: {}'.format(index.ntotal))
-    distance, idx = index.search(np.ascontiguousarray(user_embeds), 50)
-    print('distance.shape: {}'.format(distance.shape))
-    print('idx.shape: {}'.format(idx.shape))
+    distance, idx = index.search(np.ascontiguousarray(user_embeds), 50)  # 查询与用户特征最近邻的视频特征
+    print('distance.shape: {}'.format(distance.shape))  # 视频与用户的embed特征距离
+    print('idx.shape: {}'.format(idx.shape))  # 视频id
     s = []
     hit = 0
     for i, uid in tqdm(enumerate(user_input['user_id'])):
         pred = [item_profile['movie_id'].values[x] for x in idx[i]]
         filter_item = None
-        recall_score = recall_N(test_true_label[uid], pred, N=50)
+        recall_score = recall_N(test_true_label[uid], pred, N=50)  # 真实的视频label存在于预估中的前N个label的比率，即召回率
         s.append(recall_score)
-        if test_true_label[uid] in pred:
+        if test_true_label[uid] in pred:  # 命中了用户的可能感兴趣的视频，对应测试集中用户看过的视频
             hit += 1
 
     print("")
