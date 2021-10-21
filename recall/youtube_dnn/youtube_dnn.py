@@ -56,14 +56,14 @@ def def_model_and_train(train_model_input, train_label, feature_max_idx):
     # 用户稀疏特征的配置
     user_feature_columns = [
         # 定义稀疏特征和特征embedding的dim长度
-        SparseFeat('user_id', feature_max_idx['user_id'], 16),
-        SparseFeat("gender", feature_max_idx['gender'], 16),
-        SparseFeat("age", feature_max_idx['age'], 16),
-        SparseFeat("occupation", feature_max_idx['occupation'], 16),
-        SparseFeat("zip", feature_max_idx['zip'], 16),
+        SparseFeat('user_id', feature_max_idx['user_id'], 16, use_hash=False),
+        SparseFeat("gender", feature_max_idx['gender'], 16, use_hash=False),
+        SparseFeat("age", feature_max_idx['age'], 16, use_hash=False),
+        SparseFeat("occupation", feature_max_idx['occupation'], 16, use_hash=False),
+        SparseFeat("zip", feature_max_idx['zip'], 16, use_hash=False),
         # 定义变长的视频序列稀疏特征，以及pooling层的方式（mean）
         VarLenSparseFeat(SparseFeat('hist_movie_id', feature_max_idx['movie_id'], EMBEDDING_DIM,
-                                    embedding_name="movie_id"), SEQ_LEN, 'mean', 'hist_len'),
+                                    embedding_name="movie_id", use_hash=False), SEQ_LEN, 'mean', 'hist_len'),
     ]
 
     # 视频特征定义配置
@@ -93,7 +93,8 @@ def def_model_and_train(train_model_input, train_label, feature_max_idx):
     if os.path.exists(CKPT_PATH):
         model.load_weights(filepath=CKPT_PATH)
 
-    history = model.fit(train_model_input, train_label,  # train_label,
+    model.summary()
+    history = model.fit(train_model_input, train_label,  # train_label貌似没有用
                         batch_size=512, epochs=20, verbose=1, validation_split=0.0, callbacks=callbacks)
     model.save(filepath=SAVER_PATH)
 
