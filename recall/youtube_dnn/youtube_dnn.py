@@ -18,7 +18,6 @@ CKPT_PATH = os.path.join(MODEL_PATH, "checkpoint.h5")
 SAVER_PATH = os.path.join(MODEL_PATH, "model_saver.h5")
 DATA_PATH = "./"
 SEQ_LEN = 50  # Max movie history sequence len.
-NEG_SAMPLE = 1  # The rate of negative sample.
 EMBEDDING_DIM = 32  # The embedding dimension len.
 
 
@@ -44,7 +43,7 @@ def gen_feature():
     user_profile.set_index("user_id", inplace=True)
     item_profile = data[["movie_id"]].drop_duplicates('movie_id')
 
-    train_set, test_set = gen_data_set(data, NEG_SAMPLE)
+    train_set, test_set = gen_data_set(data)
 
     train_model_input, train_label = gen_model_input(train_set, user_profile, SEQ_LEN)
     test_model_input, test_label = gen_model_input(test_set, user_profile, SEQ_LEN)
