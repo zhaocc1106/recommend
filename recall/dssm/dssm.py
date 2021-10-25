@@ -5,15 +5,13 @@ import faiss
 from deepctr.feature_column import SparseFeat, VarLenSparseFeat
 from datas.movielens_data.preprocess import gen_data_set, gen_model_input
 from sklearn.preprocessing import LabelEncoder
-from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.models import Model
 from tqdm import tqdm
 
 from deepmatch.models import *
-from deepmatch.utils import sampledsoftmaxloss
 from deepmatch.utils import recall_N
 
-MODEL_PATH = "/tmp/youtube_dnn/"
+MODEL_PATH = "/tmp/dssm/"
 CKPT_PATH = os.path.join(MODEL_PATH, "checkpoint.h5")
 SAVER_PATH = os.path.join(MODEL_PATH, "model_saver.h5")
 DATA_PATH = "../../datas/movielens_data/"
@@ -43,7 +41,7 @@ def gen_feature():
     user_profile.set_index("user_id", inplace=True)
     item_profile = data[["movie_id"]].drop_duplicates('movie_id')
 
-    train_set, test_set = gen_data_set(data)
+    train_set, test_set = gen_data_set(data, negsample=3)
 
     train_model_input, train_label = gen_model_input(train_set, user_profile, SEQ_LEN)
     test_model_input, test_label = gen_model_input(test_set, user_profile, SEQ_LEN)
@@ -72,10 +70,8 @@ def def_model_and_train(train_model_input, train_label, feature_max_idx):
     import tensorflow as tf
     if tf.__version__ >= '2.0.0':
         tf.compat.v1.disable_eager_execution()
-    model = YoutubeDNN(
-        user_feature_columns, item_feature_columns, num_sampled=100,
-        user_dnn_hidden_units=(128, 64, EMBEDDING_DIM))  # dnn层最后一层的len和视频特征embed len一致，作为用户的embedding特征输出
-    model.compile(optimizer="adam", loss=sampledsoftmaxloss)  # "binary_crossentropy")
+    model = DSSM(user_feature_columns, item_feature_columns)
+    model.compile(optimizer="adagrad", loss="binary_crossentropy")
     model.summary()
 
     # 定义model fit过程的回调
@@ -93,8 +89,8 @@ def def_model_and_train(train_model_input, train_label, feature_max_idx):
         model.load_weights(filepath=CKPT_PATH)
 
     model.summary()
-    history = model.fit(train_model_input, train_label,  # train_label貌似没有用
-                        batch_size=512, epochs=1, verbose=1, validation_split=0.0, callbacks=callbacks)
+    history = model.fit(train_model_input, train_label, batch_size=512, epochs=10, verbose=1, validation_split=0.0,
+                        callbacks=callbacks)
     model.save(filepath=SAVER_PATH)
 
     print('user_embed.shape: {}'.format(model.user_embedding.shape))

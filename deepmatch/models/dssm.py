@@ -33,7 +33,7 @@ def DSSM(user_feature_columns, item_feature_columns, user_dnn_hidden_units=(64, 
     :return: A Keras model instance.
 
     """
-
+    # 构建sparse特征的Embedding层
     embedding_matrix_dict = create_embedding_matrix(user_feature_columns + item_feature_columns, l2_reg_embedding,
                                                     seed=seed,
                                                     seq_mask_zero=True)
@@ -44,6 +44,7 @@ def DSSM(user_feature_columns, item_feature_columns, user_dnn_hidden_units=(64, 
                                                                                    user_feature_columns,
                                                                                    l2_reg_embedding, seed=seed,
                                                                                    embedding_matrix_dict=embedding_matrix_dict)
+    # 链接用户特征的sparse特征和dense特征作为用户dnn塔的输入
     user_dnn_input = combined_dnn_input(user_sparse_embedding_list, user_dense_value_list)
 
     item_features = build_input_features(item_feature_columns)
@@ -52,16 +53,20 @@ def DSSM(user_feature_columns, item_feature_columns, user_dnn_hidden_units=(64, 
                                                                                    item_feature_columns,
                                                                                    l2_reg_embedding, seed=seed,
                                                                                    embedding_matrix_dict=embedding_matrix_dict)
+    # 链接物品特征的sparse和dense特征作为物品dnn塔的输入
     item_dnn_input = combined_dnn_input(item_sparse_embedding_list, item_dense_value_list)
 
+    # 用户dnn塔生成用户向量
     user_dnn_out = DNN(user_dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout,
                        dnn_use_bn, seed=seed)(user_dnn_input)
-
+    # 物品dnn塔生成物品向量
     item_dnn_out = DNN(item_dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout,
                        dnn_use_bn, seed=seed)(item_dnn_input)
 
+    # 计算用户和物品向量的相似度，使用余弦相似度，score范围约束到[-1, 1]之间
     score = Similarity(type=metric)([user_dnn_out, item_dnn_out])
 
+    # sigmoid激活函数输出两个向量是否归为一类
     output = PredictionLayer("binary", False)(score)
 
     model = Model(inputs=user_inputs_list + item_inputs_list, outputs=output)
