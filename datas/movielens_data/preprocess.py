@@ -54,21 +54,49 @@ def gen_data_set_sdm(data, seq_short_len=5, seq_prefer_len=50):
             hist = pos_list[:i]
             genres_hist = genres_list[:i]
             if i <= seq_short_len and i != len(pos_list) - 1:
-                train_set.append((reviewerID, hist[::-1], [0] * seq_prefer_len, pos_list[i], 1, len(hist[::-1]), 0,
-                                  rating_list[i], genres_hist[::-1], [0] * seq_prefer_len))
+                train_set.append((reviewerID,  # 用户id
+                                  hist[::-1],  # 视频id短期兴趣序列
+                                  [0] * seq_prefer_len,  # 因为短期兴趣序列不满足SEQ_LEN_SHORT，忽略长期序列
+                                  pos_list[i],  # 目标视频id
+                                  1,  # 1代表目标视频是正样本
+                                  len(hist[::-1]),  # 短期序列长度
+                                  0,  # 长期序列长度
+                                  rating_list[i],  # 用户对视频的评级
+                                  genres_hist[::-1],  # 视频类型短期序列
+                                  [0] * seq_prefer_len))  # 视频类型长期序列
             elif i != len(pos_list) - 1:
-                train_set.append(
-                    (reviewerID, hist[::-1][:seq_short_len], hist[::-1][seq_short_len:], pos_list[i], 1, seq_short_len,
-                     len(hist[::-1]) - seq_short_len, rating_list[i], genres_hist[::-1][:seq_short_len],
-                     genres_hist[::-1][seq_short_len:]))
-            elif i <= seq_short_len and i == len(pos_list) - 1:
-                test_set.append((reviewerID, hist[::-1], [0] * seq_prefer_len, pos_list[i], 1, len(hist[::-1]), 0,
-                                 rating_list[i], genres_hist[::-1], [0] * seq_prefer_len))
-            else:
-                test_set.append(
-                    (reviewerID, hist[::-1][:seq_short_len], hist[::-1][seq_short_len:], pos_list[i], 1, seq_short_len,
-                     len(hist[::-1]) - seq_short_len, rating_list[i], genres_hist[::-1][:seq_short_len],
-                     genres_hist[::-1][seq_short_len:]))
+                train_set.append((reviewerID,
+                                  hist[::-1][:seq_short_len],
+                                  hist[::-1][seq_short_len:],  # 短期序列后面的序列为长期序列
+                                  pos_list[i],
+                                  1,
+                                  seq_short_len,
+                                  len(hist[::-1]) - seq_short_len,
+                                  rating_list[i],
+                                  genres_hist[::-1][:seq_short_len],
+                                  genres_hist[::-1][seq_short_len:]))
+            elif i <= seq_short_len and i == len(pos_list) - 1:  # 不包含长期序列的测试样本
+                test_set.append((reviewerID,
+                                 hist[::-1],
+                                 [0] * seq_prefer_len,
+                                 pos_list[i],
+                                 1,
+                                 len(hist[::-1]),
+                                 0,
+                                 rating_list[i],
+                                 genres_hist[::-1],
+                                 [0] * seq_prefer_len))
+            else:  # 包含长期序列测试样本
+                test_set.append((reviewerID,
+                                 hist[::-1][:seq_short_len],
+                                 hist[::-1][seq_short_len:],
+                                 pos_list[i],
+                                 1,
+                                 seq_short_len,
+                                 len(hist[::-1]) - seq_short_len,
+                                 rating_list[i],
+                                 genres_hist[::-1][:seq_short_len],
+                                 genres_hist[::-1][seq_short_len:]))
 
     random.shuffle(train_set)
     random.shuffle(test_set)
@@ -125,8 +153,7 @@ def gen_model_input_sdm(train_set, user_profile, seq_short_len, seq_prefer_len):
 
     train_model_input = {"user_id": train_uid, "movie_id": train_iid, "short_movie_id": train_short_item_pad,
                          "prefer_movie_id": train_prefer_item_pad, "prefer_sess_length": train_prefer_len,
-                         "short_sess_length":
-                             train_short_len, 'short_genres': train_short_genres_pad,
+                         "short_sess_length": train_short_len, 'short_genres': train_short_genres_pad,
                          'prefer_genres': train_prefer_genres_pad}
 
     for key in ["gender", "age", "occupation", "zip"]:
