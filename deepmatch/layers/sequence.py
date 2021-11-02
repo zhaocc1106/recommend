@@ -40,7 +40,7 @@ class DynamicMultiRNN(Layer):
             single_cell = tf.compat.v1.nn.rnn_cell.DropoutWrapper(cell=single_cell, input_keep_prob=(1.0 - dropout))
         cell_list = []
         for i in range(self.num_layers):
-            residual = (i >= self.num_layers - self.num_residual_layers)
+            residual = (i >= self.num_layers - self.num_residual_layers)  # 倒数有几层residual wrapper rnn layer.
             if residual:
                 try:
                     single_cell_residual = tf.nn.rnn_cell.ResidualWrapper(single_cell)
@@ -68,6 +68,9 @@ class DynamicMultiRNN(Layer):
                                                              dtype=tf.float32, scope=self.name)
         except AttributeError:
             with tf.name_scope("rnn"), tf.compat.v1.variable_scope("rnn", reuse=tf.compat.v1.AUTO_REUSE):
+                # rnn_input: [batch_size, T, embed]
+                # rnn_output: [batch_size, T, units]
+                # hidden_state: [batch_size, units]
                 rnn_output, hidden_state = tf.compat.v1.nn.dynamic_rnn(self.final_cell, inputs=rnn_input,
                                                                        sequence_length=tf.squeeze(sequence_length),
                                                                        dtype=tf.float32, scope=self.name)

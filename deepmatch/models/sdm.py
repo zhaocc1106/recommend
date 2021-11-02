@@ -78,18 +78,23 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
         else:
             sparse_varlen_feature_columns.append(fc)
 
+    # 构建输入特征的embedding layer集合
     embedding_matrix_dict = create_embedding_matrix(user_feature_columns + item_feature_columns, l2_reg_embedding,
                                                     seed=seed)
 
     item_features = build_input_features(item_feature_columns)
     item_inputs_list = list(item_features.values())
 
+    # 长期兴趣embedding输出
     prefer_emb_list = embedding_lookup(embedding_matrix_dict, features, prefer_history_columns, prefer_fc_names,
                                        prefer_fc_names, to_list=True)  # L^u
+    # 短期兴趣embedding输出
     short_emb_list = embedding_lookup(embedding_matrix_dict, features, short_history_columns, short_fc_names,
                                       short_fc_names, to_list=True)  # S^u
     # dense_value_list = get_dense_input(features, dense_feature_columns)
+    # 用户embedding输出
     user_emb_list = embedding_lookup(embedding_matrix_dict, features, sparse_feature_columns, to_list=True)
+
 
     sequence_embed_dict = varlen_embedding_lookup(embedding_matrix_dict, features, sparse_varlen_feature_columns)
     sequence_embed_list = get_varlen_pooling_list(sequence_embed_dict, features, sparse_varlen_feature_columns,
@@ -98,25 +103,28 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
     # if len(user_emb_list) > 0 or len(dense_value_list) > 0:
     #     user_emb_feature = combined_dnn_input(user_emb_list, dense_value_list)
     user_emb = concat_func(user_emb_list)
+    # 用户embed特征输出
     user_emb_output = Dense(units, activation=dnn_activation, name="user_emb_output")(user_emb)
 
     prefer_sess_length = features['prefer_sess_length']
     prefer_att_outputs = []
-    for i, prefer_emb in enumerate(prefer_emb_list):
+    for i, prefer_emb in enumerate(prefer_emb_list):  # 每个长期序列和user profile做attention，对用户的长期兴趣进行捕捉
         prefer_attention_output = AttentionSequencePoolingLayer(dropout_rate=0)(
             [user_emb_output, prefer_emb, prefer_sess_length])
         prefer_att_outputs.append(prefer_attention_output)
-    prefer_att_concat = concat_func(prefer_att_outputs)
-    prefer_output = Dense(units, activation=dnn_activation, name="prefer_output")(prefer_att_concat)
+    prefer_att_concat = concat_func(prefer_att_outputs)  # [batch_size, 1, embed * 序列个数n]
+    prefer_output = Dense(units, activation=dnn_activation, name="prefer_output")(prefer_att_concat)  # [batch_size, 1, embed]
 
     short_sess_length = features['short_sess_length']
-    short_emb_concat = concat_func(short_emb_list)
-    short_emb_input = Dense(units, activation=dnn_activation, name="short_emb_input")(short_emb_concat)
+    short_emb_concat = concat_func(short_emb_list)  # [batch_size, T, embed * 序列个数n]
+    short_emb_input = Dense(units, activation=dnn_activation, name="short_emb_input")(short_emb_concat)  # [batch_size, T, embed]
 
+    # [batch_size, T, embed]
     short_rnn_output = DynamicMultiRNN(num_units=units, return_sequence=True, num_layers=rnn_layers,
                                        num_residual_layers=rnn_num_res,
                                        dropout_rate=dropout_rate)([short_emb_input, short_sess_length])
 
+    # Multi-Head Self-Attention消除误点击等噪声行为，[batch_size, T, embed]
     short_att_output = SelfMultiHeadAttention(num_units=units, head_num=num_head, dropout_rate=dropout_rate,
                                               future_binding=True,
                                               use_layer_norm=True)(

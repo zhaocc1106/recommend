@@ -59,11 +59,11 @@ class ConcatAttention(Layer):
 
     def call(self, inputs, mask=None, **kwargs):
         query, key = inputs
-        q_k = tf.concat([query, key], axis=-1)
-        output = self.projection_layer(q_k)
+        q_k = tf.concat([query, key], axis=-1)  # [batch_size, T, C_q + C_k]
+        output = self.projection_layer(q_k)  # [batch_size, T, 1]
         if self.scale == True:
             output = output / (key.get_shape().as_list()[-1] ** 0.5)
-        output = tf.transpose(output, [0, 2, 1])
+        output = tf.transpose(output, [0, 2, 1])  # [batch_size, 1, T]
         return output
 
     def compute_output_shape(self, input_shape):
@@ -102,8 +102,8 @@ class SoftmaxWeightedSum(Layer):
 
     def call(self, inputs, mask=None, training=None, **kwargs):
         align, value, key_masks = inputs
-        paddings = tf.ones_like(align) * (-2 ** 32 + 1)
-        align = tf.where(key_masks, align, paddings)
+        paddings = tf.ones_like(align) * (-2 ** 32 + 1)  # [batch_size, 1, T] 给mask的值一个非常小的负数
+        align = tf.where(key_masks, align, paddings)  # [batch_size, 1, T]
         if self.future_binding:
             length = value.get_shape().as_list()[1]
             lower_tri = tf.ones([length, length])
@@ -113,9 +113,9 @@ class SoftmaxWeightedSum(Layer):
                 lower_tri = tf.linalg.LinearOperatorLowerTriangular(lower_tri).to_dense()
             masks = tf.tile(tf.expand_dims(lower_tri, 0), [tf.shape(align)[0], 1, 1])
             align = tf.where(tf.equal(masks, 0), paddings, align)
-        align = softmax(align)
+        align = softmax(align)  # [batch_size, 1, T]
         align = self.dropout(align, training=training)
-        output = tf.matmul(align, value)
+        output = tf.matmul(align, value)  # [batch_size, 1, units]
         return output
 
     def compute_output_shape(self, input_shape):
@@ -153,12 +153,11 @@ class AttentionSequencePoolingLayer(Layer):
     def call(self, inputs, mask=None, **kwargs):
         queries, keys, keys_length = inputs
         hist_len = keys.get_shape()[1]
-        key_masks = tf.sequence_mask(keys_length, hist_len)
-        queries = tf.tile(queries, [1, hist_len, 1])  # [batch_size, T, units]
-        attention_score = self.concat_att([queries, keys])  # [batch_size, 1, units]
+        key_masks = tf.sequence_mask(keys_length, hist_len)  # mask用于忽略padding部分
+        queries = tf.tile(queries, [1, hist_len, 1])  # 用户当做attention query vector，[batch_size, T, units]
+        attention_score = self.concat_att([queries, keys])  # attention score，用于和兴趣序列embed做点积，[batch_size, 1, T]，
 
-        outputs = self.softmax_weight_sum([attention_score, keys, key_masks])
-        # [batch_size, units]
+        outputs = self.softmax_weight_sum([attention_score, keys, key_masks])  # [batch_size, 1, units]
         return outputs
 
     def compute_output_shape(self, input_shape):
