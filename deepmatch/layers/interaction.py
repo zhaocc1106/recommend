@@ -113,9 +113,10 @@ class SoftmaxWeightedSum(Layer):
                 lower_tri = tf.linalg.LinearOperatorLowerTriangular(lower_tri).to_dense()
             masks = tf.tile(tf.expand_dims(lower_tri, 0), [tf.shape(align)[0], 1, 1])
             align = tf.where(tf.equal(masks, 0), paddings, align)
-        align = softmax(align)  # [batch_size, 1, T]
+        align = softmax(align)  # [batch_size, 1, T]  对T个score分数做softmax归一化，作为value的T个”纬度为units向量“的累加权重
         align = self.dropout(align, training=training)
-        output = tf.matmul(align, value)  # [batch_size, 1, units]
+        # attention_score: [batch_size, 1, T], value: [batch_size, T, units]
+        output = tf.matmul(align, value)  # attention_value: [batch_size, 1, units]
         return output
 
     def compute_output_shape(self, input_shape):
@@ -214,7 +215,8 @@ class SelfAttention(Layer):
 
 
 class SelfMultiHeadAttention(Layer):
-    """
+    """原理参考 https://github.com/km1994/nlp_paper_study/tree/master/DL_algorithm/transformer_study/
+
       :param query: A 3d tensor with shape of [batch_size, T, C]
       :param key_masks: A 3d tensor with shape of [batch_size, 1]
       :return: A 3d tensor with shape of  [batch_size, T, C]
@@ -264,31 +266,39 @@ class SelfMultiHeadAttention(Layer):
         input_info, keys_length = inputs
 
         hist_len = input_info.get_shape()[1]
-        key_masks = tf.sequence_mask(keys_length, hist_len)
-        key_masks = tf.squeeze(key_masks, axis=1)
+        key_masks = tf.sequence_mask(keys_length, hist_len)  # [batch_size, 1, T]
+        key_masks = tf.squeeze(key_masks, axis=1)  # [batch_size, T]
 
-        Q_K_V = tf.tensordot(input_info, self.W, axes=(-1, 0))  # [N T_q D*3]
+        # 并行计算q k v值
+        # input_info: [batch_size, T, embed_len]
+        # self.W: [embed_len, units * 3]
+        # Q_K_V: [batch_size, T, units * 3]
+        Q_K_V = tf.tensordot(input_info, self.W, axes=(-1, 0))
+        # 从Q_K_V拆分Query keys, values，shape均为(batch_size, T, units)
         querys, keys, values = tf.split(Q_K_V, 3, -1)
 
-        # head_num None F D
-        querys = tf.concat(tf.split(querys, self.head_num, axis=2), axis=0)  # (h*N, T_q, C/h)
-        keys = tf.concat(tf.split(keys, self.head_num, axis=2), axis=0)  # (h*N, T_k, C/h)
-        values = tf.concat(tf.split(values, self.head_num, axis=2), axis=0)  # (h*N, T_k, C/h)
+        # 对q k v分别进行mult head的拆分，shape均为(batch_size * head_num, T, units / head_num)
+        querys = tf.concat(tf.split(querys, self.head_num, axis=2), axis=0)
+        keys = tf.concat(tf.split(keys, self.head_num, axis=2), axis=0)
+        values = tf.concat(tf.split(values, self.head_num, axis=2), axis=0)
 
-        # (h*N, T_q, T_k)
+        # 计算q k的attention score，(batch_size * head_num, T, T)
         align = self.attention([querys, keys])
 
-        key_masks = tf.tile(key_masks, [self.head_num, 1])  # (h*N, T_k)
-        key_masks = tf.tile(tf.expand_dims(key_masks, 1), [1, tf.shape(input_info)[1], 1])  # (h*N, T_q, T_k)
+        key_masks = tf.tile(key_masks, [self.head_num, 1])  # [batch_size * head_num, T]
+        key_masks = tf.tile(tf.expand_dims(key_masks, 1), [1, tf.shape(input_info)[1], 1])  # [batch_size * head_num, T, T]
 
-        outputs = self.softmax_weight_sum([align, values, key_masks])  # (h*N, T_q, C/h)
-        outputs = tf.concat(tf.split(outputs, self.head_num, axis=0), axis=2)  # (N, T_q, C)
-
-        outputs = tf.tensordot(outputs, self.W_output, axes=(-1, 0))  # (N, T_q, C)
+        # 计算attention score和values的softmax加权累加得到attention输出(batch_size * head_num, T, units / head_num)
+        outputs = self.softmax_weight_sum([align, values, key_masks])  # (batch_size * head_num, T, units / head_num)
+        # 求multi head的concat组合成self multi head attentions输出(batch_size, T, units)
+        outputs = tf.concat(tf.split(outputs, self.head_num, axis=0), axis=2)  # (batch_size, T, units)
+        outputs = tf.tensordot(outputs, self.W_output, axes=(-1, 0))  # (batch_size, T, units)
         outputs = self.dropout(outputs, training=training)
         if self.use_res:
+            # 如果输出的是残差方式，输出需要加上输入
             outputs += input_info
         if self.use_layer_norm:
+            # 如果使用layer normalization
             outputs = self.layer_norm(outputs)
 
         return outputs
@@ -338,18 +348,21 @@ class UserAttention(Layer):
         super(UserAttention, self).build(input_shape)
 
     def call(self, inputs, mask=None, **kwargs):
+        # user_query: (batch_size, T, units)
+        # keys: (batch_size, T, units)
         user_query, keys, keys_length = inputs
         hist_len = keys.get_shape()[1]
         key_masks = tf.sequence_mask(keys_length, hist_len)
         query = self.dense(user_query)
 
-        align = self.attention([query, keys])
+        align = self.attention([query, keys])  # (batch_size, T, T)
 
-        output = self.softmax_weight_sum([align, keys, key_masks])
+        output = self.softmax_weight_sum([align, keys, key_masks])  # (batch_size, T, units)
 
         if self.use_res:
+            # 使用残差
             output += keys
-        return reduce_mean(output, 1, keep_dims=True)
+        return reduce_mean(output, 1, keep_dims=True)  # (batch_size, 1, units)
 
     def compute_output_shape(self, input_shape):
         return (None, 1, input_shape[1][2])

@@ -25,7 +25,7 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
         dropout_rate=0.2,
         rnn_num_res=1,
         num_head=4, l2_reg_embedding=1e-6, dnn_activation='tanh', seed=1024):
-    """Instantiates the Sequential Deep Matching Model architecture.
+    """Instantiates the Sequential Deep Matching Model architecture. 参考 https://zhuanlan.zhihu.com/p/141411747
 
     :param user_feature_columns: An iterable containing user's features used by  the model.
     :param item_feature_columns: An iterable containing item's features used by  the model.
@@ -92,7 +92,7 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
     short_emb_list = embedding_lookup(embedding_matrix_dict, features, short_history_columns, short_fc_names,
                                       short_fc_names, to_list=True)  # S^u
     # dense_value_list = get_dense_input(features, dense_feature_columns)
-    # 用户embedding输出
+    # 所有用户特征embedding输出
     user_emb_list = embedding_lookup(embedding_matrix_dict, features, sparse_feature_columns, to_list=True)
 
 
@@ -102,13 +102,14 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
     user_emb_list += sequence_embed_list  # e^u
     # if len(user_emb_list) > 0 or len(dense_value_list) > 0:
     #     user_emb_feature = combined_dnn_input(user_emb_list, dense_value_list)
+    # 联合所有用户的embed特征
     user_emb = concat_func(user_emb_list)
-    # 用户embed特征输出
     user_emb_output = Dense(units, activation=dnn_activation, name="user_emb_output")(user_emb)
 
     prefer_sess_length = features['prefer_sess_length']
     prefer_att_outputs = []
-    for i, prefer_emb in enumerate(prefer_emb_list):  # 每个长期序列和user profile做attention，对用户的长期兴趣进行捕捉
+    for i, prefer_emb in enumerate(prefer_emb_list):
+        # 每个长期序列和user profile做attention，对用户的长期兴趣进行捕捉
         prefer_attention_output = AttentionSequencePoolingLayer(dropout_rate=0)(
             [user_emb_output, prefer_emb, prefer_sess_length])
         prefer_att_outputs.append(prefer_attention_output)
@@ -124,28 +125,32 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
                                        num_residual_layers=rnn_num_res,
                                        dropout_rate=dropout_rate)([short_emb_input, short_sess_length])
 
-    # Multi-Head Self-Attention消除误点击等噪声行为，[batch_size, T, embed]
+    # Multi-Head Self-Attention学习时间序列自身item相互依赖关系
     short_att_output = SelfMultiHeadAttention(num_units=units, head_num=num_head, dropout_rate=dropout_rate,
                                               future_binding=True,
                                               use_layer_norm=True)(
         [short_rnn_output, short_sess_length])  # [batch_size, time, num_units]
-
+    # 所有短期序列attention输出再和user profile计算attention (batch_size, 1, num_units)
     short_output = UserAttention(num_units=units, activation=dnn_activation, use_res=True, dropout_rate=dropout_rate) \
         ([user_emb_output, short_att_output, short_sess_length])
 
+    # 联合长期兴趣输出，短期兴趣输出，用户向量 (batch_size, 1, num_units * 3)
     gate_input = concat_func([prefer_output, short_output, user_emb_output])
+    # 使用联合向量生成兴趣门 (batch_size, 1, num_units)
     gate = Dense(units, activation='sigmoid')(gate_input)
-
+    # 上述生成的门按照概率控制长短期兴趣输出 (batch_size, 1, num_units)
     gate_output = Lambda(lambda x: tf.multiply(x[0], x[1]) + tf.multiply(1 - x[0], x[2]))(
         [gate, short_output, prefer_output])
+    # reshape生成最终的用户兴趣向量 (batch_size, num_units)
     gate_output_reshape = Lambda(lambda x: tf.squeeze(x, 1))(gate_output)
 
+    # 生成item向量 (batch_size, num_units)
     item_index = EmbeddingIndex(list(range(item_vocabulary_size)))(item_features[item_feature_name])
     item_embedding_matrix = embedding_matrix_dict[item_feature_name]
     item_embedding_weight = NoMask()(item_embedding_matrix(item_index))
-
     pooling_item_embedding_weight = PoolingLayer()([item_embedding_weight])
 
+    # 基于user item向量和目标item id计算sampled softmax loss.
     output = SampledSoftmaxLayer(num_sampled=num_sampled)([
         pooling_item_embedding_weight, gate_output_reshape, item_features[item_feature_name]])
     model = Model(inputs=user_inputs_list + item_inputs_list, outputs=output)
