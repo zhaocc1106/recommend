@@ -120,7 +120,7 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
     short_emb_concat = concat_func(short_emb_list)  # [batch_size, T, embed * 序列个数n]
     short_emb_input = Dense(units, activation=dnn_activation, name="short_emb_input")(short_emb_concat)  # [batch_size, T, embed]
 
-    # [batch_size, T, embed]
+    # [batch_size, T, embed]，使用rnn学习序列的长期依赖
     short_rnn_output = DynamicMultiRNN(num_units=units, return_sequence=True, num_layers=rnn_layers,
                                        num_residual_layers=rnn_num_res,
                                        dropout_rate=dropout_rate)([short_emb_input, short_sess_length])
@@ -141,7 +141,7 @@ def SDM(user_feature_columns, item_feature_columns, history_feature_list, num_sa
     # 上述生成的门按照概率控制长短期兴趣输出 (batch_size, 1, num_units)
     gate_output = Lambda(lambda x: tf.multiply(x[0], x[1]) + tf.multiply(1 - x[0], x[2]))(
         [gate, short_output, prefer_output])
-    # reshape生成最终的用户兴趣向量 (batch_size, num_units)
+    # reshape生成最终的用户短期兴趣向量 (batch_size, num_units)
     gate_output_reshape = Lambda(lambda x: tf.squeeze(x, 1))(gate_output)
 
     # 生成item向量 (batch_size, num_units)
