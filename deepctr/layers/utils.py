@@ -160,6 +160,9 @@ class Linear(tf.keras.layers.Layer):
         else:
             sparse_input, dense_input = inputs
             fc = tf.tensordot(dense_input, self.kernel, axes=(-1, 0))
+            # dense特征经过一个dnn层做归约
+            # sparse特征做最后一维的reduce sum归约
+            # 两个归约结果相加
             linear_logit = reduce_sum(sparse_input, axis=-1, keep_dims=False) + fc
         if self.use_bias:
             linear_logit += self.bias

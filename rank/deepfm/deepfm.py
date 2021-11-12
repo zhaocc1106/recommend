@@ -30,6 +30,7 @@ def gen_feature():
     fixlen_feature_columns = [SparseFeat(feat, vocabulary_size=1000, embedding_dim=4, use_hash=True, dtype='string')
                               # since the input is string
                               for feat in sparse_features] + [DenseFeat(feat, 1, ) for feat in dense_features]
+    # deepfm的FM和DNN两部分共享输入特征
     linear_feature_columns = fixlen_feature_columns
     dnn_feature_columns = fixlen_feature_columns
 
@@ -62,7 +63,7 @@ def def_model_and_train(linear_feature_columns, dnn_feature_columns, train, test
 
     if os.path.exists(CKPT_PATH):
         model.load_weights(filepath=CKPT_PATH)
-    history = model.fit(train_model_input, train['label'].values, batch_size=256, epochs=100, verbose=2,
+    history = model.fit(train_model_input, train['label'].values, batch_size=256, epochs=500, verbose=2,
                         validation_split=0.2, callbacks=callbacks)
     model.save(filepath=SAVER_PATH)
 

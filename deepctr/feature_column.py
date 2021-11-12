@@ -153,6 +153,7 @@ def get_linear_logit(features, feature_columns, units=1, use_bias=False, seed=10
                      l2_reg=0, sparse_feat_refine_weight=None):
     linear_feature_columns = copy(feature_columns)
     for i in range(len(linear_feature_columns)):
+        # sparse特征的embedding len设置为1，即通过embedding后转成一维向量，即标量
         if isinstance(linear_feature_columns[i], SparseFeat):
             linear_feature_columns[i] = linear_feature_columns[i]._replace(embedding_dim=1,
                                                                            embeddings_initializer=Zeros())
@@ -161,16 +162,17 @@ def get_linear_logit(features, feature_columns, units=1, use_bias=False, seed=10
                 sparsefeat=linear_feature_columns[i].sparsefeat._replace(embedding_dim=1,
                                                                          embeddings_initializer=Zeros()))
 
+    # 所有sparse特征embedding后输出
     linear_emb_list = [input_from_feature_columns(features, linear_feature_columns, l2_reg, seed,
                                                   prefix=prefix + str(i))[0] for i in range(units)]
+    # 所有dense特征
     _, dense_input_list = input_from_feature_columns(features, linear_feature_columns, l2_reg, seed, prefix=prefix)
 
     linear_logit_list = []
     for i in range(units):
-
         if len(linear_emb_list[i]) > 0 and len(dense_input_list) > 0:
-            sparse_input = concat_func(linear_emb_list[i])
-            dense_input = concat_func(dense_input_list)
+            sparse_input = concat_func(linear_emb_list[i])  # 所有sparse特征做concat
+            dense_input = concat_func(dense_input_list)  # 所有dense特征做concat
             if sparse_feat_refine_weight is not None:
                 sparse_input = Lambda(lambda x: x[0] * tf.expand_dims(x[1], axis=1))(
                     [sparse_input, sparse_feat_refine_weight])
@@ -188,6 +190,7 @@ def get_linear_logit(features, feature_columns, units=1, use_bias=False, seed=10
             return Lambda(lambda x: tf.constant([[0.0]]))(list(features.values())[0])
         linear_logit_list.append(linear_logit)
 
+    # 如果定义了多个线性单元，则所有单元concat
     return concat_func(linear_logit_list)
 
 
@@ -200,11 +203,13 @@ def input_from_feature_columns(features, feature_columns, l2_reg, seed, prefix='
 
     embedding_matrix_dict = create_embedding_matrix(feature_columns, l2_reg, seed, prefix=prefix,
                                                     seq_mask_zero=seq_mask_zero)
+    # sparse特征做embedding变化
     group_sparse_embedding_dict = embedding_lookup(embedding_matrix_dict, features, sparse_feature_columns)
     dense_value_list = get_dense_input(features, feature_columns)
     if not support_dense and len(dense_value_list) > 0:
         raise ValueError("DenseFeat is not supported in dnn_feature_columns")
 
+    # sparse特征序列做embedding变化后再做pooling操作
     sequence_embed_dict = varlen_embedding_lookup(embedding_matrix_dict, features, varlen_sparse_feature_columns)
     group_varlen_sparse_embedding_dict = get_varlen_pooling_list(sequence_embed_dict, features,
                                                                  varlen_sparse_feature_columns)

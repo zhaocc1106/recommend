@@ -580,11 +580,15 @@ class FM(Layer):
 
         concated_embeds_value = inputs
 
+        # 利用数学公式巧算交叉乘积，假如有三个特征a b c：
+        # (a + b + c)^2 - (a^2 + b^2 + c^2) = (ab + ac + bc)
+        # 得到交叉特征累加结果(batch_size, emb_len)
         square_of_sum = tf.square(reduce_sum(
             concated_embeds_value, axis=1, keep_dims=True))
         sum_of_square = reduce_sum(
             concated_embeds_value * concated_embeds_value, axis=1, keep_dims=True)
         cross_term = square_of_sum - sum_of_square
+        # 交叉特征最后一维做归约累加得到(batch_size, 1)
         cross_term = 0.5 * reduce_sum(cross_term, axis=2, keep_dims=False)
 
         return cross_term
