@@ -8,4 +8,5 @@
 [recall/youtube_dnn](https://github.com/zhaocc1106/ctr/tree/master/recall/youtube_dnn): 实践youtube dnn网络作为召回网络。<br>
 [recall/dssm](https://github.com/zhaocc1106/ctr/tree/master/recall/dssm): 实践dssm网络作为召回网络。<br>
 [recall/sdm](https://github.com/zhaocc1106/ctr/tree/master/recall/sdm): 实践sdm网络作为召回网络。<br>
-[rank/deepfm](https://github.com/zhaocc1106/ctr/tree/master/rank/deepfm): 实践deepfm网络作为排序网络。
+[rank/deepfm](https://github.com/zhaocc1106/ctr/tree/master/rank/deepfm): 实践deepfm模型。<br>
+[rank/mmoe](https://github.com/zhaocc1106/ctr/tree/master/rank/mmoe): 实践mmoe多任务模型网络。
