@@ -37,7 +37,7 @@ def MMOE(dnn_feature_columns, num_experts=3, expert_dnn_hidden_units=(256, 128),
 
     :return: a Keras model instance
     """
-    num_tasks = len(task_names)
+    num_tasks = len(task_names)  # 多任务的数量
     if num_tasks <= 1:
         raise ValueError("num_tasks must be greater than 1")
     if num_experts <= 1:
@@ -47,48 +47,53 @@ def MMOE(dnn_feature_columns, num_experts=3, expert_dnn_hidden_units=(256, 128),
         raise ValueError("num_tasks must be equal to the length of task_types")
 
     for task_type in task_types:
-        if task_type not in ['binary', 'regression']:
+        if task_type not in ['binary', 'regression']:  # 多任务的类型，二值分类或回归
             raise ValueError("task must be binary or regression, {} is illegal".format(task_type))
 
+    # 构建模型的所有feature input
     features = build_input_features(dnn_feature_columns)
 
     inputs_list = list(features.values())
 
+    # 特征经过embedding层输出
     sparse_embedding_list, dense_value_list = input_from_feature_columns(features, dnn_feature_columns,
                                                                          l2_reg_embedding, seed)
+    # concat结合sparse和dense特征
     dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
 
-    # build expert layer
+    # 构建专家网络用于提取不同任务共享的上游特征抽象表示层
     expert_outs = []
     for i in range(num_experts):
         expert_network = DNN(expert_dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout, dnn_use_bn, seed=seed,
                              name='expert_' + str(i))(dnn_input)
         expert_outs.append(expert_network)
-
+    # (batch_size, num_experts, units)
     expert_concat = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis=1))(expert_outs)  # None,num_experts,dim
 
     mmoe_outs = []
     for i in range(num_tasks):  # one mmoe layer: nums_tasks = num_gates
+        # 每个任务有一个自己的gate，通过加权集成上游特征组成自己任务的上游特征
         # build gate layers
         gate_input = DNN(gate_dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout, dnn_use_bn, seed=seed,
                          name='gate_' + task_names[i])(dnn_input)
         gate_out = tf.keras.layers.Dense(num_experts, use_bias=False, activation='softmax',
                                          name='gate_softmax_' + task_names[i])(gate_input)
+        # (batch_size, num_experts, 1)
         gate_out = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis=-1))(gate_out)
 
-        # gate multiply the expert
+        # gate multiply the expert (batch_size, units)
         gate_mul_expert = tf.keras.layers.Lambda(lambda x: reduce_sum(x[0] * x[1], axis=1, keep_dims=False),
                                                  name='gate_mul_expert_' + task_names[i])([expert_concat, gate_out])
         mmoe_outs.append(gate_mul_expert)
 
     task_outs = []
     for task_type, task_name, mmoe_out in zip(task_types, task_names, mmoe_outs):
-        # build tower layer
+        # build tower layer，tower层作为每个任务的dnn层
         tower_output = DNN(tower_dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout, dnn_use_bn, seed=seed,
                            name='tower_' + task_name)(mmoe_out)
 
         logit = tf.keras.layers.Dense(1, use_bias=False, activation=None)(tower_output)
-        output = PredictionLayer(task_type, name=task_name)(logit)
+        output = PredictionLayer(task_type, name=task_name)(logit)  # 每个任务的输出层
         task_outs.append(output)
 
     model = tf.keras.models.Model(inputs=inputs_list, outputs=task_outs)
