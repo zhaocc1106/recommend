@@ -1,4 +1,4 @@
-# rec
+# recommend
 基于[deepctr](https://github.com/shenweichen/DeepCTR)和[deepmatch](https://github.com/shenweichen/DeepMatch)实现一些推荐相关的算法，包括召回和排序等。<br>
 拷贝deepctr和deepmatch源码集成到该仓库，对源码细节加入更多的详细注释。
 * 召回：常见的召回模型输出item user向量，通过faiss等vector similarity index db查找user近邻items集合作为召回集合。
