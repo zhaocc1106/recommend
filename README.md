@@ -5,6 +5,7 @@
 * 排序：常见的排序模型的输出可以对召回的items进行排序，例如ctr点击率概率，回归分值等。
 
 ## 目录
+[recall/fm](https://github.com/zhaocc1106/recommend/blob/master/recall/fm/fm.py): 实践fm网络作为召回网络。<br>
 [recall/youtube_dnn](https://github.com/zhaocc1106/ctr/tree/master/recall/youtube_dnn): 实践youtube dnn网络作为召回网络。<br>
 [recall/dssm](https://github.com/zhaocc1106/ctr/tree/master/recall/dssm): 实践dssm网络作为召回网络。<br>
 [recall/sdm](https://github.com/zhaocc1106/ctr/tree/master/recall/sdm): 实践sdm网络作为召回网络。<br>
