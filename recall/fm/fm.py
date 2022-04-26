@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
-# import faiss
+import faiss
 from deepctr.feature_column import SparseFeat, VarLenSparseFeat
 from datas.movielens_data.preprocess import gen_data_set, gen_model_input
 from sklearn.preprocessing import LabelEncoder
